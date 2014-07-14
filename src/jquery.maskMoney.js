@@ -1,11 +1,70 @@
 (function ($) {
     "use strict";
+
     if (!$.browser) {
         $.browser = {};
-        $.browser.mozilla = /mozilla/.test(navigator.userAgent.toLowerCase()) && !/webkit/.test(navigator.userAgent.toLowerCase());
-        $.browser.webkit = /webkit/.test(navigator.userAgent.toLowerCase());
-        $.browser.opera = /opera/.test(navigator.userAgent.toLowerCase());
-        $.browser.msie = /msie/.test(navigator.userAgent.toLowerCase());
+        var browserMatched = uaMatchBrowser(navigator.userAgent);
+
+        if (browserMatched.browser) {
+            $.browser[browserMatched.browser] = true;
+            $.browser.version = browserMatched.version;
+        }
+
+        // Chrome is Webkit, but Webkit is also Safari.
+        if ($.browser.chrome) {
+            $.browser.webkit = true;
+        } else if ($.browser.webkit) {
+            $.browser.safari = true;
+        }
+    }
+
+    if (!$.platform) {
+        $.platform = {};
+        var platformMatched = uaMatchPlatform(navigator.userAgent);
+
+        if(platformMatched.platform) {
+            $.platform[platformMatched.platform] = true;
+        }
+        
+        if(platformMatched.mobile) {
+            $.platform.mobile = true;
+            $.platform[platformMatched.mobile] = true;
+        }
+    }
+
+    // jQuery Migration library code
+    function uaMatchBrowser(ua) {
+        ua = ua.toLowerCase();
+
+        var match = /(chrome)[ \/]([\w.]+)/.exec( ua ) ||
+            /(webkit)[ \/]([\w.]+)/.exec( ua ) ||
+            /(opera)(?:.*version|)[ \/]([\w.]+)/.exec( ua ) ||
+            /(msie) ([\w.]+)/.exec( ua ) ||
+            ua.indexOf("compatible") < 0 && /(mozilla)(?:.*? rv:([\w.]+)|)/.exec( ua ) ||
+            [];
+
+        return {
+            browser: match[ 1 ] || "",
+            version: match[ 2 ] || "0"
+        };
+    }
+
+    function uaMatchPlatform(ua) {
+        ua = ua.toLowerCase();
+
+        var platformMatch = /(mac)/.exec(ua) ||
+            /(linux)/.exec(ua) ||
+            /(windows)/.exec(ua) ||
+            [];
+
+        var mobileMatch = /(android)/.exec(ua) ||
+                          /(iphone)/.exec(ua) ||
+                          [];
+
+        return {
+            platform: platformMatch[1] || "",
+            mobile: mobileMatch[1] || ""
+        };
     }
 
     var methods = {
@@ -155,6 +214,34 @@
                     return operator + settings.prefix + value + settings.suffix;
                 }
 
+                function formatValue(value) {
+                    var negative = (value.indexOf("-") > -1 && settings.allowNegative) ? "-" : "",
+                        decimalIndex = value.indexOf(settings.decimal),
+                        integerPart = (decimalIndex === -1 ? value : value.slice(0, decimalIndex)).replace(/\D/g, ""),
+                        decimalPart = (decimalIndex === -1 ? "" : value.slice(decimalIndex+1)).replace(/\D/g, ""),
+                        newValue;
+
+                    // remove initial zeros
+                    integerPart = integerPart.replace(/^0+/g, "");
+
+                    // put settings.thousands every 3 chars
+                    if (integerPart === "") {
+                        integerPart = "0";
+                    }
+
+                    newValue = negative + integerPart;
+
+                    if ((decimalIndex !== -1) && (settings.precision > 0)) {
+                        if(decimalPart.length > settings.precision) {
+                            decimalPart = decimalPart.substring(0, settings.precision);
+                        }
+
+                        newValue += settings.decimal + decimalPart;
+                    }
+
+                    return setSymbol(newValue);
+                }
+
                 function maskValue(value) {
                     var negative = (value.indexOf("-") > -1 && settings.allowNegative) ? "-" : "",
                         onlyNumbers = value.replace(/[^0-9]/g, ""),
@@ -165,6 +252,7 @@
 
                     // remove initial zeros
                     integerPart = integerPart.replace(/^0*/g, "");
+
                     // put settings.thousands every 3 chars
                     integerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, settings.thousands);
                     if (integerPart === "") {
@@ -230,6 +318,9 @@
                     //added to handle an IE "special" event
                     if (key === undefined) {
                         return false;
+                    } else if(key === 0) {
+                        // Chrome Mobile doesn't provides the key code
+                        return true;
                     }
 
                     // any key except the numbers 0-9
@@ -319,6 +410,26 @@
                     }
                 }
 
+                // It's just a workaround for Android devices because Chrome
+                // mobile doesn't support `keypress` event either provides the
+                // key code on `keydown`, `keyup` or `compositionupdate` events
+                function keyupEvent() {
+                    var value = $input.val();
+                    var formattedValue = formatValue(value);
+                    
+                    if(value !== formattedValue) {
+                        $input.val(formattedValue);
+                    }
+                }
+
+                function focusAndSelect() {
+                    focusEvent();
+                    setTimeout(function() {
+                        $input.select();
+                    }, 50);
+
+                }
+
                 function focusEvent() {
                     onFocusValue = $input.val();
                     mask();
@@ -340,6 +451,11 @@
                 function getDefaultMask() {
                     var n = parseFloat("0") / Math.pow(10, settings.precision);
                     return (n.toFixed(settings.precision)).replace(new RegExp("\\.", "g"), settings.decimal);
+                }
+
+                function maskAndBlur(e) {
+                    mask();
+                    blurEvent(e);
                 }
 
                 function blurEvent(e) {
@@ -378,10 +494,18 @@
                 }
 
                 $input.unbind(".maskMoney");
-                $input.bind("keypress.maskMoney", keypressEvent);
-                $input.bind("keydown.maskMoney", keydownEvent);
-                $input.bind("blur.maskMoney", blurEvent);
-                $input.bind("focus.maskMoney", focusEvent);
+
+                if($.browser.chrome && $.platform.android) {
+                    $input.bind("keyup.maskMoney", keyupEvent);
+                    $input.bind("blur.maskMoney", maskAndBlur);
+                    $input.bind("focus.maskMoney", focusAndSelect);
+                } else {
+                    $input.bind("keypress.maskMoney", keypressEvent);
+                    $input.bind("keydown.maskMoney", keydownEvent);
+                    $input.bind("blur.maskMoney", blurEvent);
+                    $input.bind("focus.maskMoney", focusEvent);
+                }
+
                 $input.bind("click.maskMoney", clickEvent);
                 $input.bind("cut.maskMoney", cutPasteEvent);
                 $input.bind("paste.maskMoney", cutPasteEvent);
