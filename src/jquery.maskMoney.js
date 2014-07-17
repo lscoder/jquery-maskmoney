@@ -521,9 +521,9 @@
                     $input.bind("keydown.maskMoney", keydownEvent);
                     $input.bind("blur.maskMoney", blurEvent);
                     $input.bind("focus.maskMoney", focusEvent);
+                    $input.bind("click.maskMoney", clickEvent);
                 }
 
-                $input.bind("click.maskMoney", clickEvent);
                 $input.bind("cut.maskMoney", cutPasteEvent);
                 $input.bind("paste.maskMoney", cutPasteEvent);
                 $input.bind("mask.maskMoney", mask);
